@@ -14,7 +14,8 @@ JPEG_MAGIC = b"\xff\xd8\xff"
 WEBP_MAGIC_RIFF = b"RIFF"
 WEBP_MAGIC_TAG = b"WEBP"
 
-FILE_TOO_LARGE_DETAIL = f"檔案過大，最大允許 {MAX_FILE_SIZE // (1024 * 1024)} MB。"
+def _file_too_large_detail(max_size: int) -> str:
+    return f"檔案過大, 最大允許 {max_size // (1024 * 1024)} MB。"
 
 ALLOWED_IMAGE_MIME_TYPES: frozenset[str] = frozenset(
     {"image/png", "image/jpeg", "image/webp"}
@@ -59,11 +60,11 @@ async def read_and_validate_upload(
         )
 
     if file.size is not None and file.size > max_size:
-        raise HTTPException(status_code=413, detail=FILE_TOO_LARGE_DETAIL)
+        raise HTTPException(status_code=413, detail=_file_too_large_detail(max_size))
 
     contents = await file.read(max_size + 1)
     if len(contents) > max_size:
-        raise HTTPException(status_code=413, detail=FILE_TOO_LARGE_DETAIL)
+        raise HTTPException(status_code=413, detail=_file_too_large_detail(max_size))
 
     detected = None
     if detect_type is not None:

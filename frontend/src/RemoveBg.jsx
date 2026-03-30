@@ -18,12 +18,12 @@ export default function RemoveBg() {
     return () => URL.revokeObjectURL(url)
   }, [file])
 
-  // Cleanup result URL on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (resultUrl) URL.revokeObjectURL(resultUrl)
+      abortRef.current?.abort()
     }
-  }, [resultUrl])
+  }, [])
 
   function handleFileChange(e) {
     const selected = e.target.files?.[0] || null
@@ -36,6 +36,7 @@ export default function RemoveBg() {
     if (err) { setError(err); setFile(null); return }
 
     setFile(selected)
+    e.target.value = ''
   }
 
   async function handleSubmit(e) {
@@ -51,6 +52,10 @@ export default function RemoveBg() {
 
     try {
       const { url } = await removeBackground(file, controller.signal)
+      if (controller.signal.aborted) {
+        URL.revokeObjectURL(url)
+        return
+      }
       setResultUrl(url)
     } catch (err) {
       if (err.name !== 'AbortError') {

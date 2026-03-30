@@ -34,10 +34,17 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     start = time.monotonic()
-    app.state.rembg_session = new_session()
-    logger.info("rembg model loaded in %.1fs", time.monotonic() - start)
+    try:
+        app.state.rembg_session = new_session()
+        app.state.rembg_error = None
+        logger.info("rembg model loaded in %.1fs", time.monotonic() - start)
+    except Exception:
+        logger.exception("Failed to load rembg model")
+        app.state.rembg_session = None
+        app.state.rembg_error = "rembg model failed to load"
     yield
-    del app.state.rembg_session
+    if getattr(app.state, "rembg_session", None) is not None:
+        del app.state.rembg_session
     logger.info("Models unloaded")
 
 
@@ -73,10 +80,12 @@ async def add_security_headers(request: Request, call_next) -> Response:
 @app.get("/health")
 async def health() -> JSONResponse:
     ok = getattr(app.state, "rembg_session", None) is not None
-    return JSONResponse(
-        status_code=200 if ok else 503,
-        content={"status": "ok" if ok else "loading"},
-    )
+    rembg_error = getattr(app.state, "rembg_error", None)
+    status = "ok" if ok else "degraded"
+    content: dict[str, str] = {"status": status}
+    if rembg_error:
+        content["rembg_error"] = rembg_error
+    return JSONResponse(status_code=200, content=content)
 
 
 @app.post("/api/remove-background")

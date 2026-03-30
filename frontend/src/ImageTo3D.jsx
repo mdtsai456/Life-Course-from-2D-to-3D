@@ -54,6 +54,7 @@ export default function ImageTo3D() {
     if (err) { setError(err); setFile(null); return }
 
     setFile(selected)
+    e.target.value = ''
   }
 
   async function handleRemoveBg(e) {

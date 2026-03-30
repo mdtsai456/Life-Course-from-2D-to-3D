@@ -1,9 +1,15 @@
 async function postForBlob(url, formData, fallbackMessage, signal) {
-  const response = await fetch(url, {
-    method: 'POST',
-    body: formData,
-    signal,
-  })
+  let response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      signal,
+    })
+  } catch (err) {
+    if (err.name === 'AbortError') throw err
+    throw new Error(fallbackMessage)
+  }
 
   if (!response.ok) {
     let message = fallbackMessage
