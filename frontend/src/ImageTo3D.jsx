@@ -10,7 +10,9 @@ export default function ImageTo3D() {
   const [model3dUrl, setModel3dUrl] = useState(null)
   const [step, setStep] = useState('idle') // idle | removing | removed | converting | done
   const [error, setError] = useState('')
+  const [dragOver, setDragOver] = useState(false)
   const abortRef = useRef(null)
+  const dragCounterRef = useRef(0)
   const removedBgUrlRef = useRef(null)
   const model3dUrlRef = useRef(null)
 
@@ -119,19 +121,65 @@ export default function ImageTo3D() {
 
   const isRemoving = step === 'removing'
   const isConverting = step === 'converting'
+  const isBusy = isRemoving || isConverting
   const showRemovedResult = step === 'removed' || step === 'converting' || step === 'done'
   const show3dResult = step === 'done'
 
+  function handleDragEnter(e) {
+    e.preventDefault()
+    if (isBusy) return
+    dragCounterRef.current++
+    setDragOver(true)
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault()
+    if (isBusy) return
+    dragCounterRef.current--
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0
+      setDragOver(false)
+    }
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault()
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    dragCounterRef.current = 0
+    setDragOver(false)
+    if (isBusy) return
+
+    const dropped = e.dataTransfer.files?.[0]
+    if (!dropped) return
+
+    resetResults()
+
+    const err = validateFile(dropped)
+    if (err) { setError(err); setFile(null); return }
+
+    setFile(dropped)
+  }
+
   return (
     <div className="uploader">
-      <form className="upload-form" onSubmit={handleRemoveBg}>
+      <form
+        className={`upload-form${dragOver ? ' drag-over' : ''}`}
+        onSubmit={handleRemoveBg}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
         <label htmlFor="img3d-upload" className="file-label">
           <input
             id="img3d-upload"
             type="file"
             accept="image/png,image/jpeg,image/webp"
             onChange={handleFileChange}
-            disabled={isRemoving || isConverting}
+            disabled={isBusy}
             className="file-input"
           />
           <span className="file-button">選擇圖片</span>
@@ -141,10 +189,10 @@ export default function ImageTo3D() {
         </label>
         <button
           type="submit"
-          disabled={!file || isRemoving || isConverting}
+          disabled={!file || isBusy}
           className="submit-button"
         >
-          {isRemoving ? <><span className="spinner" /> 移除背景中...</> : '移除背景'}
+          {isRemoving ? <><span className="spinner" /> 步驟 1/2：正在移除背景…</> : '移除背景'}
         </button>
       </form>
 
@@ -178,7 +226,7 @@ export default function ImageTo3D() {
                 disabled={isConverting}
                 className="submit-button"
               >
-                {isConverting ? <><span className="spinner" /> 轉換 3D 中...</> : '轉換 3D'}
+                {isConverting ? <><span className="spinner" /> 步驟 2/2：正在轉換 3D 模型…</> : '轉換 3D'}
               </button>
             </div>
           )}
