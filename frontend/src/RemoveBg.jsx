@@ -8,7 +8,9 @@ export default function RemoveBg() {
   const [resultUrl, setResultUrl] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [dragOver, setDragOver] = useState(false)
   const abortRef = useRef(null)
+  const dragCounterRef = useRef(0)
 
   // Create/revoke original preview URL
   useEffect(() => {
@@ -24,6 +26,45 @@ export default function RemoveBg() {
       abortRef.current?.abort()
     }
   }, [])
+
+  function handleDragEnter(e) {
+    e.preventDefault()
+    if (loading) return
+    dragCounterRef.current++
+    setDragOver(true)
+  }
+
+  function handleDragLeave(e) {
+    e.preventDefault()
+    if (loading) return
+    dragCounterRef.current--
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0
+      setDragOver(false)
+    }
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault()
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    dragCounterRef.current = 0
+    setDragOver(false)
+    if (loading) return
+
+    const dropped = e.dataTransfer.files?.[0]
+    if (!dropped) return
+
+    setError('')
+    if (resultUrl) { URL.revokeObjectURL(resultUrl); setResultUrl(null) }
+
+    const err = validateFile(dropped)
+    if (err) { setError(err); setFile(null); return }
+
+    setFile(dropped)
+  }
 
   function handleFileChange(e) {
     const selected = e.target.files?.[0] || null
@@ -69,7 +110,14 @@ export default function RemoveBg() {
 
   return (
     <div className="uploader">
-      <form className="upload-form" onSubmit={handleSubmit}>
+      <form
+        className={`upload-form${dragOver ? ' drag-over' : ''}`}
+        onSubmit={handleSubmit}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
         <label htmlFor="bg-upload" className="file-label">
           <input
             id="bg-upload"
@@ -89,7 +137,7 @@ export default function RemoveBg() {
           disabled={!file || loading}
           className="submit-button"
         >
-          {loading ? <><span className="spinner" /> 處理中...</> : '移除背景'}
+          {loading ? <><span className="spinner" /> 正在移除背景，請稍候…</> : '移除背景'}
         </button>
       </form>
 

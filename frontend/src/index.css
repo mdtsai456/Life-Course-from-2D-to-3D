@@ -71,6 +71,15 @@ body {
   gap: 0.75rem;
   flex-wrap: wrap;
   margin-bottom: 1rem;
+  padding: 1rem;
+  border: 2px dashed transparent;
+  border-radius: 12px;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.upload-form.drag-over {
+  border-color: #2563eb;
+  background-color: #eff6ff;
 }
 
 .file-label {
