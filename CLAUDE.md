@@ -60,6 +60,18 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. Pre-Implementation Review Gate
+
+**When given a plan (with or without a brainstorm), evaluate whether `/grill-me` is needed before implementing.**
+
+Use `/grill-me` when:
+- The plan has unresolved open questions or ambiguous requirements
+
+Skip `/grill-me` and proceed to implementation when:
+- There are no unresolved open questions or ambiguous requirements
+
+When skipping, state the reason in one line before starting implementation.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
