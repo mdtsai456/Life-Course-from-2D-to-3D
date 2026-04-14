@@ -1,4 +1,4 @@
-# Life-Course-from-2D-to-3D
+# Life Course: Image-to-3D
 
 ## 1. Task Description
 單張影像輸入，產出 **Unity 可直接依下表驗收** 的 Ready 3D（有網格、UV、材質／貼圖正確）。
