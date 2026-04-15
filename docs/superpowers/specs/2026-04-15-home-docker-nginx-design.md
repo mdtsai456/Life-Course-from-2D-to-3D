@@ -9,7 +9,7 @@
 ### 1.1 目標
 
 - 使用 **Docker Compose** 同時運行 **Nginx（前端靜態 + API 反代）**、既有 **backend**、既有 **triposr-api**。
-- 瀏覽器僅透過 **單一對外埠**（預設 **80**）使用應用；前端與 API 為 **同源**，避免不必要的 CORS 複雜度。
+- 瀏覽器僅透過 **單一對外埠**（預設 **8080** 對應到容器內 nginx 的 **80**；可透過 `HTTP_PORT` 覆寫）使用應用；前端與 API 為 **同源**，避免不必要的 CORS 複雜度。
 - 維持 **triposr-api** 需 **NVIDIA GPU**、**backend** 呼叫內部 `triposr-api` 的現有整合方式。
 
 ### 1.2 非目標（本規格不涵蓋）
@@ -22,7 +22,7 @@
 
 | 服務 | 對主機網路 | 職責 |
 |------|------------|------|
-| **nginx** | **發布** 例如 `0.0.0.0:80->80` | 提供前端 production 靜態檔；將 **`/api/`** 反向代理至 `backend:8000`。 |
+| **nginx** | **發布** 例如 `0.0.0.0:8080->80`（主機埠可設定；容器內恆為 **80**） | 提供前端 production 靜態檔；將 **`/api/`** 反向代理至 `backend:8000`。 |
 | **backend** | **不發布**（僅 Compose 內部） | 既有 FastAPI；環境變數 `TRIPOSR_API_URL` 指向 `http://triposr-api:8001`；檔案儲存於 `STORAGE_ROOT`。 |
 | **triposr-api** | **不發布**（僅 Compose 內部） | 既有 TripoSR 推論服務；需 GPU；保留 **healthcheck**。 |
 
@@ -45,6 +45,7 @@
 ### 3.2 Nginx 行為需求
 
 - **`location /api/`**：反向代理至 `http://backend:8000`，**proxy_pass 與尾隻斜線寫法**須與 FastAPI 註冊路徑一次對齊，避免雙斜線或截斷前綴。
+- **`GET /health`（選用但已定案保留）**：可經 nginx 轉發至 **backend** `/health`，便於家裡／辦公室以 `curl` 驗收；**勿**將對外埠無防護暴露於公網。
 - **SPA**：靜態根目錄服務 `index.html`；對非實體檔案路徑之導覽應回退至 `index.html`，避免重新整理 404。
 
 ### 3.3 與現有前端的對齊
@@ -53,12 +54,12 @@
 
 ## 4. Compose 與網路埠
 
-- **僅 nginx** 對主機 **publish** 預設 **80**（埠號可透過 compose 變數覆寫，本規格以 80 為預設文件值）。
-- **backend** 與 **triposr-api** 的 **8000／8001 不對主機發布**（降低誤連與暴露面）；除錯若需直連 backend，屬開發者本機臨時調整，非本規格預設交付形態。
+- **僅 nginx** 對主機 **publish** 預設 **`HTTP_PORT=8080` → 容器 80**（避免 Linux 非 root 綁定 **80** 之摩擦；若需無埠號 URL 可改為 `HTTP_PORT=80` 並自行處理主機權限）。
+- **backend** 與 **triposr-api** 的 **8000／8001 不對主機發布**（降低誤連與暴露面）；除錯若需直連 backend，屬開發者本機臨時調整（例如本機 `compose.override.yaml`），非本規格預設交付形態。
 
 ## 5. 環境變數與 CORS
 
-- **backend** 之 `CORS_ALLOWED_ORIGINS` 應包含使用者實際入口，例如 `http://127.0.0.1`、`http://localhost`，以及以區網 IP 存取時之 `http://<區網IP>`（建議以 **單一環境變數** 或 compose 檔內明列方式設定，避免過寬 `*`）。
+- **backend** 之 `CORS_ALLOWED_ORIGINS` 預設應與實際瀏覽器 **Origin** 一致（含 **埠號**），例如 `http://127.0.0.1:8080`、`http://localhost:8080`；若以區網 IP 存取則為 `http://<區網IP>:8080`（若已變更 `HTTP_PORT` 則替換埠號）。建議以 **單一環境變數** 或 compose 檔內明列方式設定，避免過寬 `*`。若要以本機 **Vite 5173** 直連 `backend` 除錯，由開發者自行追加 `http://127.0.0.1:5173` 等 origin。
 - 同源經 nginx 時，多數請求不觸發 CORS；仍保留正確 CORS 設定，以支援未來可能的前後端分離或開發模式。
 
 ## 6. TripoSR 原始碼建置前置條件
@@ -71,8 +72,8 @@
 
 ## 8. 驗收標準（家裡工作站）
 
-1. 於具 NVIDIA Container Toolkit 與符合既有映像需求之機器上，依文件完成建置前置條件後，執行 **`docker compose up`**（或專案慣用指令）可啟動三服務且 **nginx 對外 80** 可連線。
-2. 瀏覽器僅使用 **`http://<主機>:80`** 可完成上傳影像並取得 3D 結果之完整流程。
+1. 於具 NVIDIA Container Toolkit 與符合既有映像需求之機器上，依文件完成建置前置條件後，執行 **`docker compose up`**（或專案慣用指令）可啟動三服務且 **nginx 對外預設 8080**（或已設定之 `HTTP_PORT`）可連線。
+2. 瀏覽器僅使用 **`http://<主機>:8080`**（若未改 `HTTP_PORT`）可完成上傳影像並取得 3D 結果之完整流程。
 3. 預設配置下，主機上 **不可**（或不必）依賴 `http://<主機>:8000` 對外提供服務即可完成上述流程。
 
 ## 9. 測試與品質（實作計畫應涵蓋）
@@ -83,3 +84,16 @@
 ## 10. 後續流程
 
 - 經需求方確認本文件無誤後，以 **writing-plans** 產出實作計畫（檔案路徑與命名依該技能與 repo 慣例）。
+
+## 11. 修訂紀錄（2026-04-15，`/grill-me`）
+
+以下定案已回寫至本 spec 與 `docs/superpowers/plans/2026-04-15-home-compose-nginx.md` 之 **Grill-me 定案** 附錄：
+
+| 項目 | 定案摘要 |
+|------|----------|
+| 對外預設埠 | 主機 **8080** → 容器 nginx **80**（`HTTP_PORT`） |
+| CORS 預設 | `http://127.0.0.1:8080`、`http://localhost:8080` |
+| Build context | 根 `.dockerignore` 排除 **`backend/storage`** |
+| `/health` | 經 nginx **保留**對外轉發（家裡／辦公室情境） |
+| 本機覆寫 | **`compose.override.yaml`** 列入根 `.gitignore`；README 說明一句 |
+| Windows | README 簡述 **WSL2** 同層放置 repo 與 `TripoSR-main` 之建議 |
