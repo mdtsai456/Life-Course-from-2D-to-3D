@@ -6,14 +6,16 @@ import asyncio
 import logging
 import os
 import shutil
+import time
 import uuid
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_storage_root
+from app.image_to_3d_guards import enforce_image_to_3d_access
 from app.storage_paths import ensure_job_dirs
 from app.validation import (
     ALLOWED_IMAGE_MIME_TYPES,
@@ -24,7 +26,7 @@ from app.validation import (
 logger = logging.getLogger(__name__)
 
 TRIPOSR_API_URL = os.environ.get("TRIPOSR_API_URL", "http://localhost:8001").rstrip("/")
-TRIPOSR_API_TIMEOUT_SECONDS = float(os.environ.get("TRIPOSR_API_TIMEOUT_SECONDS", "60"))
+TRIPOSR_API_TIMEOUT_SECONDS = float(os.environ.get("TRIPOSR_API_TIMEOUT_SECONDS", "120"))
 IMAGE_EXTENSION_BY_MIME_TYPE = {
     "image/png": "png",
     "image/jpeg": "jpg",
@@ -44,10 +46,16 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(","),
+    allow_origins=[
+        origin.strip()
+        for origin in os.environ.get(
+            "CORS_ALLOWED_ORIGINS", "http://localhost:5173"
+        ).split(",")
+        if origin.strip()
+    ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Request-Id"],
+    allow_headers=["Content-Type", "X-Request-Id", "Authorization", "X-API-Key"],
 )
 
 
@@ -111,6 +119,47 @@ async def _probe_triposr(request_id: str | None = None) -> tuple[bool, str | Non
         return True, None
 
     return False, payload.get("detail") or "3D 推理服務尚未就緒。"
+
+
+_triposr_health_cache: tuple[bool, str | None, float] | None = None
+_triposr_health_lock = asyncio.Lock()
+
+
+async def _probe_triposr_cached() -> tuple[bool, str | None]:
+    """對 TripoSR 做就緒探測並以 TTL 去重，避免 /health 與 /health/public 高頻呼叫放大成下游 DoS。"""
+    global _triposr_health_cache
+    ttl = float(os.environ.get("HEALTH_TRIPOSR_PROBE_TTL_SECONDS", "15"))
+    if ttl <= 0:
+        return await _probe_triposr(request_id=None)
+
+    now = time.monotonic()
+    cached = _triposr_health_cache
+    if cached is not None:
+        ok, detail, cached_at = cached
+        if now - cached_at < ttl:
+            return ok, detail
+
+    async with _triposr_health_lock:
+        now = time.monotonic()
+        cached = _triposr_health_cache
+        if cached is not None:
+            ok, detail, cached_at = cached
+            if now - cached_at < ttl:
+                return ok, detail
+        ok, detail = await _probe_triposr(request_id=None)
+        _triposr_health_cache = (ok, detail, time.monotonic())
+        return ok, detail
+
+
+async def _readiness_full() -> tuple[int, dict[str, str | bool]]:
+    ok, detail = await _probe_triposr_cached()
+    body: dict[str, str | bool] = {
+        "status": "ok" if ok else "degraded",
+        "triposr_ok": ok,
+    }
+    if detail:
+        body["detail"] = detail
+    return (200 if ok else 503), body
 
 
 async def _infer_glb(
@@ -197,20 +246,37 @@ async def add_response_headers(request: Request, call_next) -> Response:
     return response
 
 
+@app.get("/health/live")
+async def health_live() -> JSONResponse:
+    """Process liveness for orchestration probes; does not call TripoSR."""
+    return JSONResponse(status_code=200, content={"status": "ok"})
+
+
+@app.get("/health/public")
+async def health_public() -> JSONResponse:
+    """就緒狀態之最小 JSON（供 nginx 對外）；不含 triposr_ok／detail 以降低偵察面。完整欄位請 GET /health（須能直連 backend）。"""
+    status_code, body = await _readiness_full()
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": body["status"]},
+    )
+
+
 @app.get("/health")
 async def health(request: Request) -> JSONResponse:
-    rid = _request_id(request) or None
-    ok, detail = await _probe_triposr(request_id=rid)
-    content: dict[str, str | bool] = {
-        "status": "ok" if ok else "degraded",
-        "triposr_ok": ok,
-    }
-    if detail:
-        content["detail"] = detail
-    return JSONResponse(status_code=200, content=content)
+    """Readiness: 503 when TripoSR 未就緒，供僅看 HTTP 狀態的探針使用；純存活請用 /health/live。
+
+    對下游探測結果會快取 HEALTH_TRIPOSR_PROBE_TTL_SECONDS 秒（預設 15），設為 0 則每次即時探測。
+    經 nginx 對外同源 /health 僅轉至此服務之 /health/public（不含下游細節）。
+    """
+    status_code, body = await _readiness_full()
+    return JSONResponse(status_code=status_code, content=body)
 
 
-@app.post("/api/image-to-3d")
+@app.post(
+    "/api/image-to-3d",
+    dependencies=[Depends(enforce_image_to_3d_access)],
+)
 async def image_to_3d(file: UploadFile, request: Request) -> Response:
     allowed = ", ".join(sorted(ALLOWED_IMAGE_MIME_TYPES))
     contents, detected_type = await read_and_validate_upload(

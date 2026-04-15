@@ -1,3 +1,7 @@
+# TripoSR 請求逾時：須與 nginx/default.conf 內 /api/ 的 proxy_read_timeout、proxy_send_timeout 一致，
+# 否則可能出現 Nginx 先斷線（502）與後端先放棄 TripoSR（503）交錯、語意漂移。
+x-triposr-api-timeout-seconds: &triposr_api_timeout_seconds "120"
+
 services:
   backend:
     build:
@@ -6,7 +10,7 @@ services:
     environment:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080}
       TRIPOSR_API_URL: http://triposr-api:8001
-      TRIPOSR_API_TIMEOUT_SECONDS: 60
+      TRIPOSR_API_TIMEOUT_SECONDS: *triposr_api_timeout_seconds
       STORAGE_ROOT: /app/storage
     volumes:
       - ./backend/storage:/app/storage
@@ -17,10 +21,10 @@ services:
       test:
         [
           "CMD-SHELL",
-          "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5); assert r.status == 200; r.read()\"",
+          "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=3); assert r.status == 200; r.read()\"",
         ]
       interval: 10s
-      timeout: 8s
+      timeout: 5s
       retries: 5
       start_period: 30s
 

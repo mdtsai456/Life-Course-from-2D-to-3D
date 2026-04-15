@@ -14,7 +14,7 @@ WEBP_HEADER = b"RIFF" + b"\x00" * 4 + b"WEBP" + b"\x00" * 100
 
 def _cleanup_modules():
     """Remove cached app modules so the next import gets a fresh copy."""
-    for mod in ["app.main", "app.config", "app.storage_paths"]:
+    for mod in ["app.main", "app.config", "app.storage_paths", "app.image_to_3d_guards"]:
         sys.modules.pop(mod, None)
 
 

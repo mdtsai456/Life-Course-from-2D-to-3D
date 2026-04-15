@@ -84,6 +84,8 @@
 ## 10. 後續流程
 
 - 經需求方確認本文件無誤後，以 **writing-plans** 產出實作計畫（檔案路徑與命名依該技能與 repo 慣例）。
+- **實作核銷清單（逐步）：** `docs/superpowers/plans/2026-04-15-home-compose-nginx.md`（Task 1–7、checkbox）。
+- **Repo 內追蹤用計畫（摘要／需求對照）：** `docs/plans/2026-04-15-002-feat-docker-nginx-frontend-plan.md`（與本 spec 牴觸時以本 spec 為準）。
 
 ## 11. 修訂紀錄（2026-04-15，`/grill-me`）
 
