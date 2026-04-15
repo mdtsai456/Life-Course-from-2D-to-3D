@@ -17,6 +17,7 @@ from triposr_api.engine import (
     InvalidImageError,
     build_engine,
 )
+from triposr_api.settings import INFER_TIMEOUT_SECONDS_DEFAULT
 from triposr_api.validation import (
     ALLOWED_IMAGE_MIME_TYPES,
     detect_image_type,
@@ -33,8 +34,10 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.exception("Failed to build TripoSR engine")
         app.state.engine = DegradedEngine(str(exc))
+        app.state.settings = None
     else:
         app.state.engine = engine
+        app.state.settings = getattr(engine, "settings", None)
         try:
             engine.load()
         except Exception:
@@ -68,12 +71,27 @@ async def infer(file: UploadFile, request: Request) -> Response:
     )
 
     loop = asyncio.get_running_loop()
+    settings = getattr(request.app.state, "settings", None)
+    timeout = (
+        settings.infer_timeout_seconds
+        if settings is not None
+        else INFER_TIMEOUT_SECONDS_DEFAULT
+    )
+    infer_future = loop.run_in_executor(
+        None,
+        request.app.state.engine.infer_glb,
+        contents,
+    )
     try:
-        glb = await loop.run_in_executor(
-            None,
-            request.app.state.engine.infer_glb,
-            contents,
-        )
+        glb = await asyncio.wait_for(infer_future, timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning("TripoSR inference exceeded %.1f s limit.", timeout)
+        if not infer_future.done():
+            infer_future.cancel()
+        raise HTTPException(
+            status_code=504,
+            detail="3D 推理逾時。",
+        ) from None
     except EngineNotReadyError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
     except InvalidImageError as exc:

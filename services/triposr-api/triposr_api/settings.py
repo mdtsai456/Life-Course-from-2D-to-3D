@@ -32,6 +32,9 @@ def _parse_float(name: str, raw: str | None, default: float) -> float:
         ) from exc
 
 
+INFER_TIMEOUT_SECONDS_DEFAULT = 120.0
+
+
 @dataclass(frozen=True)
 class Settings:
     source_dir: str
@@ -41,6 +44,7 @@ class Settings:
     mc_resolution: int
     foreground_ratio: float
     max_image_edge: int
+    infer_timeout_seconds: float
 
 
 def get_settings() -> Settings:
@@ -64,5 +68,10 @@ def get_settings() -> Settings:
         ),
         max_image_edge=_parse_int(
             "TRIPOSR_MAX_IMAGE_EDGE", os.environ.get("TRIPOSR_MAX_IMAGE_EDGE"), 2048
+        ),
+        infer_timeout_seconds=_parse_float(
+            "TRIPOSR_INFER_TIMEOUT",
+            os.environ.get("TRIPOSR_INFER_TIMEOUT"),
+            INFER_TIMEOUT_SECONDS_DEFAULT,
         ),
     )

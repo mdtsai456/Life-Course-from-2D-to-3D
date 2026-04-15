@@ -16,6 +16,7 @@ def test_get_settings_empty_numeric_env_uses_defaults():
             "TRIPOSR_MC_RESOLUTION": "   ",
             "TRIPOSR_FOREGROUND_RATIO": "",
             "TRIPOSR_MAX_IMAGE_EDGE": "",
+            "TRIPOSR_INFER_TIMEOUT": "",
         },
         clear=False,
     ):
@@ -24,6 +25,7 @@ def test_get_settings_empty_numeric_env_uses_defaults():
     assert s.mc_resolution == 256
     assert s.foreground_ratio == 0.85
     assert s.max_image_edge == 2048
+    assert s.infer_timeout_seconds == 120.0
 
 
 def test_get_settings_invalid_chunk_size():
@@ -38,3 +40,10 @@ def test_get_settings_invalid_foreground_ratio():
         with pytest.raises(ConfigurationError) as excinfo:
             get_settings()
     assert "TRIPOSR_FOREGROUND_RATIO" in str(excinfo.value)
+
+
+def test_get_settings_invalid_infer_timeout():
+    with patch.dict(os.environ, {"TRIPOSR_INFER_TIMEOUT": "x"}, clear=False):
+        with pytest.raises(ConfigurationError) as excinfo:
+            get_settings()
+    assert "TRIPOSR_INFER_TIMEOUT" in str(excinfo.value)

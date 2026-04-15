@@ -98,12 +98,12 @@ class TriposrEngine:
             )
 
     def infer_glb(self, image_bytes: bytes) -> bytes:
-        if self._model is None or self._torch is None or self._device is None:
-            raise EngineNotReadyError(
-                self._startup_error or "3D 推理服務尚未就緒。"
-            )
-
         with self._lock:
+            if self._model is None or self._torch is None or self._device is None:
+                raise EngineNotReadyError(
+                    self._startup_error or "3D 推理服務尚未就緒。"
+                )
+
             image = self._decode_image(image_bytes)
             prepared = self._prepare_image(image)
 
