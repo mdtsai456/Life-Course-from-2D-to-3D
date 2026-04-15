@@ -10,6 +10,8 @@
 
 **設計依據：** `docs/superpowers/specs/2026-04-15-home-docker-nginx-design.md`
 
+**Repo 追蹤計畫（摘要，牴觸時以本檔與上列 spec 為準）：** `docs/plans/2026-04-15-002-feat-docker-nginx-frontend-plan.md`
+
 ---
 
 ## 檔案／責任對照（實作前先鎖定邊界）
@@ -46,9 +48,9 @@
 **本機覆寫：** 可在 repo 根目錄自建 `compose.override.yaml` 覆寫服務設定；該檔名已列入 `.gitignore`，不會進版控。
 ```
 
-- [ ] **Step 1:** 將上段插入 `README.md` 適當位置（建議在現有 TripoSR 小節附近，使「本機 conda」與「Compose」並列可找）。
+- [x] **Step 1:** 將上段插入 `README.md` 適當位置（建議在現有 TripoSR 小節附近，使「本機 conda」與「Compose」並列可找）。
 
-- [ ] **Step 2:** Commit
+- [x] **Step 2:** Commit
 
 ```bash
 git add README.md
@@ -79,11 +81,11 @@ backend/storage
 compose.override.yaml
 ```
 
-- [ ] **Step 1:** 建立 `.dockerignore`，內容與上列完全一致。
+- [x] **Step 1:** 建立 `.dockerignore`，內容與上列完全一致。
 
-- [ ] **Step 2:** 於 `.gitignore` 加入 `compose.override.yaml`。
+- [x] **Step 2:** 於 `.gitignore` 加入 `compose.override.yaml`。
 
-- [ ] **Step 3:** Commit
+- [x] **Step 3:** Commit
 
 ```bash
 git add .dockerignore .gitignore
@@ -134,9 +136,9 @@ server {
 }
 ```
 
-- [ ] **Step 1:** 建立 `nginx/default.conf`，內容與上列完全一致。
+- [x] **Step 1:** 建立 `nginx/default.conf`，內容與上列完全一致。
 
-- [ ] **Step 2:** Commit
+- [x] **Step 2:** Commit
 
 ```bash
 git add nginx/default.conf
@@ -168,7 +170,7 @@ COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-build /src/dist /usr/share/nginx/html
 ```
 
-- [ ] **Step 1:** 建立 `nginx/Dockerfile`，內容與上列完全一致（`compose` build context 為 repo 根目錄時，`COPY frontend/` 路徑正確）。
+- [x] **Step 1:** 建立 `nginx/Dockerfile`，內容與上列完全一致（`compose` build context 為 repo 根目錄時，`COPY frontend/` 路徑正確）。
 
 - [ ] **Step 2:** 本機驗證僅建 nginx 映像（**不**需 GPU；可略過若無 Docker）
 
@@ -178,7 +180,7 @@ docker build -f nginx/Dockerfile -t life-course-nginx:test .
 
 預期：最後一行類似 `Successfully tagged life-course-nginx:test`。
 
-- [ ] **Step 3:** Commit
+- [x] **Step 3:** Commit
 
 ```bash
 git add nginx/Dockerfile
@@ -232,7 +234,7 @@ git commit -m "feat(deploy): add multi-stage nginx image with Vite build"
         condition: service_healthy
 ```
 
-- [ ] **Step 1:** 依上列修改 `compose.yaml`。
+- [x] **Step 1:** 依上列修改 `compose.yaml`。
 
 - [ ] **Step 2:** 驗證 Compose 語法
 
@@ -242,7 +244,7 @@ docker compose config >/tmp/compose.out && head -n 5 /tmp/compose.out
 
 預期：無錯誤訊息，且 `/tmp/compose.out` 含 `nginx:`、`backend:`、`triposr-api:`。
 
-- [ ] **Step 3:** Commit
+- [x] **Step 3:** Commit
 
 ```bash
 git add compose.yaml
@@ -291,9 +293,9 @@ curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:${HTTP_PORT:-8080}/heal
 
 **段落 E — 結尾一句：** 瀏覽器開 `http://127.0.0.1:8080`（或 `http://localhost:8080`，若已改 `HTTP_PORT` 則替換埠號）應載入前端；上傳圖片跑完整流程須 GPU 與 triposr-api healthy。
 
-- [ ] **Step 1:** 將段落 A～E 寫入 `README.md`（順序與上相同；程式碼區塊各自獨立，中間不包外層 fence）。
+- [x] **Step 1:** 將段落 A～E 寫入 `README.md`（順序與上相同；程式碼區塊各自獨立，中間不包外層 fence）。
 
-- [ ] **Step 2:** Commit
+- [x] **Step 2:** Commit
 
 ```bash
 git add README.md
