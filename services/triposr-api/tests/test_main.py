@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -143,3 +144,15 @@ def test_infer_surfaces_empty_mesh():
         close_client(client)
 
     assert resp.status_code == 422
+
+
+def test_health_degraded_when_build_engine_fails_from_invalid_env():
+    with patch.dict(os.environ, {"TRIPOSR_CHUNK_SIZE": "not-int"}, clear=False):
+        with TestClient(app) as client:
+            resp = client.get("/health")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "degraded"
+    assert body["triposr_ok"] is False
+    assert "TRIPOSR_CHUNK_SIZE" in body["detail"]

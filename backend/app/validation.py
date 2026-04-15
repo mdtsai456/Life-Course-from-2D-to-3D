@@ -14,7 +14,7 @@ JPEG_MAGIC = b"\xff\xd8\xff"
 
 
 def _file_too_large_detail(max_size: int) -> str:
-    return f"檔案過大，最大允許 {max_size // (1024 * 1024)} MB。"
+    return f"檔案過大, 最大允許 {max_size // (1024 * 1024)} MB."
 
 
 ALLOWED_IMAGE_MIME_TYPES: frozenset[str] = frozenset({"image/png", "image/jpeg"})

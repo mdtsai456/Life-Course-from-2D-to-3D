@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
@@ -77,9 +78,11 @@ async def _triposr_request(
     method: str,
     path: str,
     *,
+    request_id: str | None = None,
     files: dict[str, tuple[str, bytes, str]] | None = None,
 ) -> httpx.Response:
-    headers = {"X-Request-Id": str(uuid.uuid4())}
+    rid = request_id if request_id else str(uuid.uuid4())
+    headers = {"X-Request-Id": rid}
     async with httpx.AsyncClient(timeout=TRIPOSR_API_TIMEOUT_SECONDS) as client:
         return await client.request(
             method,
@@ -89,9 +92,9 @@ async def _triposr_request(
         )
 
 
-async def _probe_triposr() -> tuple[bool, str | None]:
+async def _probe_triposr(request_id: str | None = None) -> tuple[bool, str | None]:
     try:
-        response = await _triposr_request("GET", "/health")
+        response = await _triposr_request("GET", "/health", request_id=request_id)
     except httpx.RequestError:
         logger.exception("TripoSR health probe failed")
         return False, "無法連線至 3D 推理服務。"
@@ -110,11 +113,18 @@ async def _probe_triposr() -> tuple[bool, str | None]:
     return False, payload.get("detail") or "3D 推理服務尚未就緒。"
 
 
-async def _infer_glb(contents: bytes, filename: str, content_type: str) -> bytes:
+async def _infer_glb(
+    contents: bytes,
+    filename: str,
+    content_type: str,
+    *,
+    request_id: str | None = None,
+) -> bytes:
     try:
         response = await _triposr_request(
             "POST",
             "/infer",
+            request_id=request_id,
             files={"file": (filename, contents, content_type)},
         )
     except httpx.TimeoutException as exc:
@@ -139,7 +149,7 @@ async def _infer_glb(contents: bytes, filename: str, content_type: str) -> bytes
     )
 
 
-def _persist_job_artifacts(
+def _persist_job_artifacts_sync(
     job_id: str,
     detected_type: str | None,
     contents: bytes,
@@ -158,6 +168,23 @@ def _persist_job_artifacts(
         raise
 
 
+async def _persist_job_artifacts(
+    job_id: str,
+    detected_type: str | None,
+    contents: bytes,
+    glb: bytes,
+) -> None:
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        _persist_job_artifacts_sync,
+        job_id,
+        detected_type,
+        contents,
+        glb,
+    )
+
+
 @app.middleware("http")
 async def add_response_headers(request: Request, call_next) -> Response:
     request.state.request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
@@ -171,8 +198,9 @@ async def add_response_headers(request: Request, call_next) -> Response:
 
 
 @app.get("/health")
-async def health() -> JSONResponse:
-    ok, detail = await _probe_triposr()
+async def health(request: Request) -> JSONResponse:
+    rid = _request_id(request) or None
+    ok, detail = await _probe_triposr(request_id=rid)
     content: dict[str, str | bool] = {
         "status": "ok" if ok else "degraded",
         "triposr_ok": ok,
@@ -197,6 +225,7 @@ async def image_to_3d(file: UploadFile, request: Request) -> Response:
             contents,
             file.filename or "upload-image",
             detected_type or "application/octet-stream",
+            request_id=_request_id(request) or None,
         )
     except TriposrProxyError as exc:
         raise HTTPException(
@@ -206,7 +235,7 @@ async def image_to_3d(file: UploadFile, request: Request) -> Response:
 
     job_id = str(uuid.uuid4())
     try:
-        _persist_job_artifacts(job_id, detected_type, contents, glb)
+        await _persist_job_artifacts(job_id, detected_type, contents, glb)
     except Exception:
         logger.exception("Failed to persist image-to-3d artifacts for job_id=%s", job_id)
         raise HTTPException(

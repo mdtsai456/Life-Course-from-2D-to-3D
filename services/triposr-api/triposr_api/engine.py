@@ -91,7 +91,11 @@ class TriposrEngine:
                 raise
 
     def health(self) -> EngineHealth:
-        return EngineHealth(ready=self._model is not None, detail=self._startup_error)
+        with self._lock:
+            return EngineHealth(
+                ready=self._model is not None,
+                detail=self._startup_error,
+            )
 
     def infer_glb(self, image_bytes: bytes) -> bytes:
         if self._model is None or self._torch is None or self._device is None:
@@ -127,12 +131,12 @@ class TriposrEngine:
             return bytes(glb)
 
     def _decode_image(self, image_bytes: bytes):
-        from PIL import Image, ImageOps, UnidentifiedImageError
+        from PIL import Image, ImageOps
 
         try:
             image = Image.open(BytesIO(image_bytes))
             image.load()
-        except UnidentifiedImageError as exc:
+        except OSError as exc:
             raise InvalidImageError("檔案內容不是有效的圖片格式。") from exc
 
         return self._resize_if_needed(ImageOps.exif_transpose(image))
@@ -178,6 +182,24 @@ class TriposrEngine:
         faces = getattr(mesh, "faces", [])
         if len(vertices) < 4 or len(faces) < 4:
             raise EmptyMeshError("產生的 3D 模型內容不足，請換一張圖片再試。")
+
+
+class DegradedEngine:
+    """Minimal engine stand-in when settings or construction fails at startup."""
+
+    def __init__(self, detail: str) -> None:
+        self._detail = detail
+
+    def load(self) -> None:
+        return None
+
+    def health(self) -> EngineHealth:
+        return EngineHealth(ready=False, detail=self._detail)
+
+    def infer_glb(self, image_bytes: bytes) -> bytes:
+        raise EngineNotReadyError(
+            self._detail or "3D 推理服務尚未就緒。"
+        )
 
 
 def build_engine() -> TriposrEngine:

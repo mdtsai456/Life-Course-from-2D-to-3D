@@ -1,15 +1,19 @@
+# PyTorch CUDA 12.6 三件套請見 Dockerfile（與本機 conda 流程一致：先 setuptools，再
+# `pip install torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 --index-url …/cu126`，最後 `-r` 本檔）。
+# torchmcubes 編譯時需已安裝 torch，故列於下方。
+
 fastapi>=0.115,<0.129
 uvicorn[standard]>=0.30
 python-multipart>=0.0.20
 pytest>=8.0
 httpx>=0.27
 omegaconf==2.3.0
-Pillow==10.1.0
+Pillow>=10.3.0,<11
 numpy
 einops==0.7.0
-git+https://github.com/tatsy/torchmcubes.git
-transformers==4.35.0
+git+https://github.com/tatsy/torchmcubes.git@3381600ddc3d2e4d74222f8495866be5fafbace4
+transformers>=4.46.0,<5
 trimesh==4.0.5
 rembg
 huggingface-hub
-onnxruntime
+onnxruntime-gpu

@@ -9,7 +9,7 @@ FAKE_GLB = b"glb-bytes"
 
 class TestHealth:
     def test_reports_ok_when_triposr_probe_succeeds(self, client, monkeypatch):
-        async def fake_probe():
+        async def fake_probe(request_id: str | None = None):
             return True, None
 
         monkeypatch.setattr("app.main._probe_triposr", fake_probe)
@@ -20,7 +20,7 @@ class TestHealth:
         assert resp.json() == {"status": "ok", "triposr_ok": True}
 
     def test_reports_degraded_when_triposr_probe_fails(self, client, monkeypatch):
-        async def fake_probe():
+        async def fake_probe(request_id: str | None = None):
             return False, "3D 推理服務尚未就緒。"
 
         monkeypatch.setattr("app.main._probe_triposr", fake_probe)
@@ -37,7 +37,9 @@ class TestHealth:
 
 class TestImageTo3dValidation:
     def test_accept_mismatched_mime_with_valid_magic(self, client, monkeypatch, tmp_path):
-        async def fake_infer(contents: bytes, filename: str, content_type: str) -> bytes:
+        async def fake_infer(
+            contents: bytes, filename: str, content_type: str, request_id: str | None = None
+        ) -> bytes:
             assert filename == "model.jpg"
             assert content_type == "image/png"
             return FAKE_GLB
@@ -53,7 +55,9 @@ class TestImageTo3dValidation:
         assert resp.status_code == 200
 
     def test_accept_valid_jpeg(self, client, monkeypatch, tmp_path):
-        async def fake_infer(contents: bytes, filename: str, content_type: str) -> bytes:
+        async def fake_infer(
+            contents: bytes, filename: str, content_type: str, request_id: str | None = None
+        ) -> bytes:
             assert content_type == "image/jpeg"
             return FAKE_GLB
 
@@ -91,7 +95,9 @@ class TestImageTo3dValidation:
         assert resp.status_code == 415
 
     def test_success_returns_glb(self, client, monkeypatch, tmp_path):
-        async def fake_infer(contents: bytes, filename: str, content_type: str) -> bytes:
+        async def fake_infer(
+            contents: bytes, filename: str, content_type: str, request_id: str | None = None
+        ) -> bytes:
             return FAKE_GLB
 
         monkeypatch.setattr("app.main._infer_glb", fake_infer)
@@ -112,7 +118,9 @@ class TestImageTo3dValidation:
     def test_surfaces_downstream_errors_with_request_id(self, client, monkeypatch):
         from app.main import TriposrProxyError
 
-        async def fake_infer(contents: bytes, filename: str, content_type: str) -> bytes:
+        async def fake_infer(
+            contents: bytes, filename: str, content_type: str, request_id: str | None = None
+        ) -> bytes:
             raise TriposrProxyError(503, "3D 推理服務暫時不可用。")
 
         monkeypatch.setattr("app.main._infer_glb", fake_infer)
@@ -126,7 +134,9 @@ class TestImageTo3dValidation:
         assert "錯誤 ID:" in resp.json()["detail"]
 
     def test_persists_successful_input_and_output(self, client, monkeypatch, tmp_path):
-        async def fake_infer(contents: bytes, filename: str, content_type: str) -> bytes:
+        async def fake_infer(
+            contents: bytes, filename: str, content_type: str, request_id: str | None = None
+        ) -> bytes:
             return FAKE_GLB
 
         monkeypatch.setattr("app.main._infer_glb", fake_infer)
@@ -146,7 +156,9 @@ class TestImageTo3dValidation:
     def test_does_not_persist_files_when_inference_fails(self, client, monkeypatch, tmp_path):
         from app.main import TriposrProxyError
 
-        async def fake_infer(contents: bytes, filename: str, content_type: str) -> bytes:
+        async def fake_infer(
+            contents: bytes, filename: str, content_type: str, request_id: str | None = None
+        ) -> bytes:
             raise TriposrProxyError(503, "3D 推理服務暫時不可用。")
 
         monkeypatch.setattr("app.main._infer_glb", fake_infer)
@@ -162,7 +174,9 @@ class TestImageTo3dValidation:
         assert not (tmp_path / "output").exists()
 
     def test_security_headers(self, client, monkeypatch, tmp_path):
-        async def fake_infer(contents: bytes, filename: str, content_type: str) -> bytes:
+        async def fake_infer(
+            contents: bytes, filename: str, content_type: str, request_id: str | None = None
+        ) -> bytes:
             return FAKE_GLB
 
         monkeypatch.setattr("app.main._infer_glb", fake_infer)

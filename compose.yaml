@@ -13,15 +13,31 @@ services:
     volumes:
       - ./backend/storage:/app/storage
     depends_on:
-      - triposr-api
+      triposr-api:
+        condition: service_healthy
 
   triposr-api:
     build:
-      context: ..
-      dockerfile: life-course-from-2d-to-3d/services/triposr-api/Dockerfile
+      context: .
+      dockerfile: services/triposr-api/Dockerfile
+      additional_contexts:
+        triposr-main: ../TripoSR-main
     environment:
       TRIPOSR_SOURCE_DIR: /opt/triposr
       TRIPOSR_DEVICE: cuda:0
       TRIPOSR_CHUNK_SIZE: 8192
       TRIPOSR_MC_RESOLUTION: 256
       TRIPOSR_MAX_IMAGE_EDGE: 2048
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 120s

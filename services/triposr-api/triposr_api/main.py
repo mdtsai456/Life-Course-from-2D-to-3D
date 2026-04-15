@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 
 from triposr_api.engine import (
+    DegradedEngine,
     EmptyMeshError,
     EngineNotReadyError,
     InferenceFailedError,
@@ -27,12 +28,17 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    engine = build_engine()
-    app.state.engine = engine
     try:
-        engine.load()
-    except Exception:
-        logger.exception("Failed to initialize TripoSR engine")
+        engine = build_engine()
+    except Exception as exc:
+        logger.exception("Failed to build TripoSR engine")
+        app.state.engine = DegradedEngine(str(exc))
+    else:
+        app.state.engine = engine
+        try:
+            engine.load()
+        except Exception:
+            logger.exception("Failed to initialize TripoSR engine")
     yield
 
 
