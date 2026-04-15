@@ -85,6 +85,36 @@ use command `python run.py --help` to see detail usage.
 
 **本機覆寫：** 可在 repo 根目錄自建 `compose.override.yaml` 覆寫服務設定；該檔名已列入 `.gitignore`，不會進版控。
 
+**啟動（專案根目錄）：**
+
+```bash
+docker compose build
+docker compose up
+```
+
+**環境變數（選用）：**
+
+| 變數 | 預設 | 說明 |
+|------|------|------|
+| `HTTP_PORT` | `8080` | 對外 HTTP 埠（主機埠 → 容器 nginx **80**） |
+| `CORS_ALLOWED_ORIGINS` | `http://127.0.0.1:8080,http://localhost:8080` | 逗號分隔；若改 `HTTP_PORT` 須一併調整來源埠。若以區網 IP 開網頁，請加上 `http://<你的區網IP>:<HTTP_PORT>`。若要以本機 **Vite 5173** 直連 `backend` 除錯，請自行追加 `http://127.0.0.1:5173,http://localhost:5173`（需暫時對外打開 backend 埠時請用 `compose.override.yaml`）。|
+
+**驗收（主機上，Compose 已 up）：**
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:${HTTP_PORT:-8080}/
+```
+
+預期輸出 `200`。
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:${HTTP_PORT:-8080}/health
+```
+
+預期輸出 `200`（JSON 內 `triposr_ok` 是否為 true 依 GPU／服務狀態而定，但 HTTP 應為 200）。
+
+瀏覽器開 `http://127.0.0.1:8080`（或 `http://localhost:8080`，若已改 `HTTP_PORT` 則替換埠號）應載入前端；上傳圖片跑完整流程須 GPU 與 triposr-api healthy。
+
 ---
 
 ## Appendix A. Environment Setup Details / Troubleshooting
