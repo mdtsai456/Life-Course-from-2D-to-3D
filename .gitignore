@@ -5,3 +5,4 @@ __pycache__/
 .context/
 node_modules/
 dist/
+.DS_Store

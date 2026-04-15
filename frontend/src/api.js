@@ -33,12 +33,6 @@ async function postForBlob(url, formData, fallbackMessage, signal) {
   return { url: URL.createObjectURL(blob), blob }
 }
 
-export async function removeBackground(file, signal) {
-  const formData = new FormData()
-  formData.append('file', file)
-  return postForBlob('/api/remove-background', formData, '移除背景失敗。', signal)
-}
-
 export async function convertTo3D(file, signal) {
   const formData = new FormData()
   formData.append('file', file)

@@ -1,71 +1,168 @@
-"""FastAPI application for background removal and image-to-3D conversion."""
+"""FastAPI application for the single-step image-to-3D flow."""
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import os
-import struct
-import time
-from contextlib import asynccontextmanager
-from functools import partial
+import shutil
+import uuid
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from rembg import new_session, remove
 
+from app.config import get_storage_root
+from app.storage_paths import ensure_job_dirs
 from app.validation import (
-    ALLOWED_3D_MIME_TYPES,
     ALLOWED_IMAGE_MIME_TYPES,
     detect_image_type,
-    detect_png,
     read_and_validate_upload,
 )
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Lifespan
-# ---------------------------------------------------------------------------
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    start = time.monotonic()
-    try:
-        app.state.rembg_session = new_session()
-        app.state.rembg_error = None
-        logger.info("rembg model loaded in %.1fs", time.monotonic() - start)
-    except Exception:
-        logger.exception("Failed to load rembg model")
-        app.state.rembg_session = None
-        app.state.rembg_error = "rembg model failed to load"
-    yield
-    if getattr(app.state, "rembg_session", None) is not None:
-        del app.state.rembg_session
-    logger.info("Models unloaded")
+TRIPOSR_API_URL = os.environ.get("TRIPOSR_API_URL", "http://localhost:8001").rstrip("/")
+TRIPOSR_API_TIMEOUT_SECONDS = float(os.environ.get("TRIPOSR_API_TIMEOUT_SECONDS", "60"))
+IMAGE_EXTENSION_BY_MIME_TYPE = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+}
 
 
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
+class TriposrProxyError(Exception):
+    """Raised when the downstream TripoSR service cannot satisfy a request."""
 
-app = FastAPI(lifespan=lifespan)
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:5173").split(","),
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-Request-Id"],
 )
 
 
+def _request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", "")
+
+
+def _with_request_id(detail: str, request: Request) -> str:
+    request_id = _request_id(request)
+    if not request_id:
+        return detail
+    return f"{detail}（錯誤 ID: {request_id}）"
+
+
+def _extract_error_detail(response: httpx.Response, fallback: str) -> str:
+    try:
+        data = response.json()
+    except ValueError:
+        return fallback
+
+    detail = data.get("detail")
+    if isinstance(detail, str) and detail:
+        return detail
+    return fallback
+
+
+async def _triposr_request(
+    method: str,
+    path: str,
+    *,
+    files: dict[str, tuple[str, bytes, str]] | None = None,
+) -> httpx.Response:
+    headers = {"X-Request-Id": str(uuid.uuid4())}
+    async with httpx.AsyncClient(timeout=TRIPOSR_API_TIMEOUT_SECONDS) as client:
+        return await client.request(
+            method,
+            f"{TRIPOSR_API_URL}{path}",
+            files=files,
+            headers=headers,
+        )
+
+
+async def _probe_triposr() -> tuple[bool, str | None]:
+    try:
+        response = await _triposr_request("GET", "/health")
+    except httpx.RequestError:
+        logger.exception("TripoSR health probe failed")
+        return False, "無法連線至 3D 推理服務。"
+
+    if response.status_code != 200:
+        return False, "3D 推理服務健康檢查失敗。"
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return False, "3D 推理服務健康回應無效。"
+
+    if payload.get("triposr_ok") is True:
+        return True, None
+
+    return False, payload.get("detail") or "3D 推理服務尚未就緒。"
+
+
+async def _infer_glb(contents: bytes, filename: str, content_type: str) -> bytes:
+    try:
+        response = await _triposr_request(
+            "POST",
+            "/infer",
+            files={"file": (filename, contents, content_type)},
+        )
+    except httpx.TimeoutException as exc:
+        raise TriposrProxyError(503, "3D 轉換逾時，請稍後再試。") from exc
+    except httpx.RequestError as exc:
+        raise TriposrProxyError(503, "3D 推理服務暫時不可用。") from exc
+
+    if response.status_code == 200:
+        if not response.content:
+            raise TriposrProxyError(502, "3D 推理服務回應為空。")
+        return response.content
+
+    if response.status_code in {413, 415, 422, 503}:
+        raise TriposrProxyError(
+            response.status_code,
+            _extract_error_detail(response, "3D 轉換失敗。"),
+        )
+
+    raise TriposrProxyError(
+        502,
+        _extract_error_detail(response, "3D 推理服務暫時不可用。"),
+    )
+
+
+def _persist_job_artifacts(
+    job_id: str,
+    detected_type: str | None,
+    contents: bytes,
+    glb: bytes,
+) -> None:
+    storage_root = get_storage_root()
+    input_dir, output_dir = ensure_job_dirs(storage_root, job_id)
+
+    try:
+        ext = IMAGE_EXTENSION_BY_MIME_TYPE.get(detected_type or "", "bin")
+        (input_dir / f"original.{ext}").write_bytes(contents)
+        (output_dir / "model.glb").write_bytes(glb)
+    except Exception:
+        shutil.rmtree(input_dir, ignore_errors=True)
+        shutil.rmtree(output_dir, ignore_errors=True)
+        raise
+
+
 @app.middleware("http")
-async def add_security_headers(request: Request, call_next) -> Response:
+async def add_response_headers(request: Request, call_next) -> Response:
+    request.state.request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
     response: Response = await call_next(request)
+    response.headers["X-Request-Id"] = request.state.request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -73,90 +170,56 @@ async def add_security_headers(request: Request, call_next) -> Response:
     return response
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
 @app.get("/health")
 async def health() -> JSONResponse:
-    ok = getattr(app.state, "rembg_session", None) is not None
-    rembg_error = getattr(app.state, "rembg_error", None)
-    status = "ok" if ok else "degraded"
-    content: dict[str, str] = {"status": status}
-    if rembg_error:
-        content["rembg_error"] = rembg_error
+    ok, detail = await _probe_triposr()
+    content: dict[str, str | bool] = {
+        "status": "ok" if ok else "degraded",
+        "triposr_ok": ok,
+    }
+    if detail:
+        content["detail"] = detail
     return JSONResponse(status_code=200, content=content)
 
 
-@app.post("/api/remove-background")
-async def remove_background(file: UploadFile, request: Request) -> Response:
+@app.post("/api/image-to-3d")
+async def image_to_3d(file: UploadFile, request: Request) -> Response:
     allowed = ", ".join(sorted(ALLOWED_IMAGE_MIME_TYPES))
-    contents, _ = await read_and_validate_upload(
+    contents, detected_type = await read_and_validate_upload(
         file,
         detect_type=detect_image_type,
         allowed_types=ALLOWED_IMAGE_MIME_TYPES,
-        type_error_detail=f"不支援的檔案類型。允許：{allowed}。",
-    )
-
-    session = getattr(request.app.state, "rembg_session", None)
-    if session is None:
-        raise HTTPException(status_code=503, detail="服務尚未就緒。")
-
-    loop = asyncio.get_running_loop()
-    try:
-        result = await loop.run_in_executor(
-            None, partial(remove, contents, session=session)
-        )
-    except Exception:
-        logger.exception("Background removal failed")
-        raise HTTPException(status_code=500, detail="圖片處理失敗，請重試。") from None
-
-    if result is None or len(result) == 0:
-        raise HTTPException(status_code=500, detail="圖片處理失敗，請重試。")
-
-    return Response(
-        content=result,
-        media_type="image/png",
-        headers={"Content-Disposition": 'attachment; filename="output.png"'},
-    )
-
-
-def _make_mock_glb() -> bytes:
-    """Return a minimal valid GLB (empty glTF scene) for development."""
-    gltf = {
-        "asset": {"version": "2.0"},
-        "scene": 0,
-        "scenes": [{"nodes": []}],
-    }
-    json_bytes = json.dumps(gltf).encode()
-    padding = (4 - len(json_bytes) % 4) % 4
-    json_chunk_data = json_bytes + b" " * padding
-
-    json_chunk_len = len(json_chunk_data)
-    total_len = 12 + 8 + json_chunk_len
-
-    file_header = struct.pack("<III", 0x46546C67, 2, total_len)
-    chunk_header = struct.pack("<II", json_chunk_len, 0x4E4F534A)
-
-    return file_header + chunk_header + json_chunk_data
-
-
-@app.post("/api/image-to-3d")
-async def image_to_3d(file: UploadFile) -> Response:
-    allowed = ", ".join(sorted(ALLOWED_3D_MIME_TYPES))
-    contents, _ = await read_and_validate_upload(
-        file,
-        detect_type=detect_png,
-        allowed_types=ALLOWED_3D_MIME_TYPES,
         type_error_detail=f"檔案內容不是有效的格式。允許：{allowed}。",
     )
 
-    # TODO: 替換成真實 2D→3D 模型推理（TripoSR、Meshy 等）
-    logger.info("Returning mock GLB (input size: %d bytes)", len(contents))
-    glb = _make_mock_glb()
+    try:
+        glb = await _infer_glb(
+            contents,
+            file.filename or "upload-image",
+            detected_type or "application/octet-stream",
+        )
+    except TriposrProxyError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=_with_request_id(exc.detail, request),
+        ) from None
 
+    job_id = str(uuid.uuid4())
+    try:
+        _persist_job_artifacts(job_id, detected_type, contents, glb)
+    except Exception:
+        logger.exception("Failed to persist image-to-3d artifacts for job_id=%s", job_id)
+        raise HTTPException(
+            status_code=500,
+            detail=_with_request_id("3D 檔案儲存失敗，請重試。", request),
+        ) from None
+
+    logger.info("Returned TripoSR GLB (input size: %d bytes)", len(contents))
     return Response(
         content=glb,
         media_type="model/gltf-binary",
-        headers={"Content-Disposition": 'attachment; filename="model.glb"'},
+        headers={
+            "Content-Disposition": 'attachment; filename="model.glb"',
+            "X-Job-Id": job_id,
+        },
     )

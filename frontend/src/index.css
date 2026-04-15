@@ -65,6 +65,71 @@ body {
   padding: 0.5rem;
 }
 
+.examples-section {
+  margin-bottom: 1.5rem;
+}
+
+.section-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.section-description {
+  font-size: 0.9rem;
+  color: #666;
+  margin-bottom: 0.9rem;
+}
+
+.example-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.9rem;
+}
+
+.example-card {
+  border: 1.5px solid #dbe2ea;
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.65rem;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.example-card:hover:not(:disabled) {
+  border-color: #2563eb;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.12);
+  transform: translateY(-1px);
+}
+
+.example-card.active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.example-card:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.example-image {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #f8fafc;
+  display: block;
+  margin-bottom: 0.6rem;
+}
+
+.example-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #334155;
+}
+
 .upload-form {
   display: flex;
   align-items: center;

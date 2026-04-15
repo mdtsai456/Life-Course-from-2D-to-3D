@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      TRIPOSR_API_URL: http://triposr-api:8001
+      TRIPOSR_API_TIMEOUT_SECONDS: 60
+      STORAGE_ROOT: /app/storage
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/storage:/app/storage
+    depends_on:
+      - triposr-api
+
+  triposr-api:
+    build:
+      context: ..
+      dockerfile: life-course-from-2d-to-3d/services/triposr-api/Dockerfile
+    environment:
+      TRIPOSR_SOURCE_DIR: /opt/triposr
+      TRIPOSR_DEVICE: cuda:0
+      TRIPOSR_CHUNK_SIZE: 8192
+      TRIPOSR_MC_RESOLUTION: 256
+      TRIPOSR_MAX_IMAGE_EDGE: 2048
