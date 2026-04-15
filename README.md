@@ -75,7 +75,15 @@ python gradio_app.py
 
 use command `python run.py --help` to see detail usage.
 
+### 3.3 Docker Compose 部署（家裡工作站）
 
+**TripoSR 原始碼路徑（建置必要）：** `compose.yaml` 內 `triposr-api` 使用 `additional_contexts.triposr-main: ../TripoSR-main`，意即 **與本 repo 同層** 須存在目錄 `TripoSR-main/`（內容為 TripoSR 專案根）。若你的 TripoSR 放在其他路徑，請在執行 `docker compose build` 前改寫該行，或於本機建立符號連結對齊 `../TripoSR-main`。
+
+**主機需求：** 安裝 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)，且 GPU 驅動版本須能執行映像內 CUDA 12.6 PyTorch（與 `services/triposr-api/Dockerfile` 一致）。
+
+**Windows／WSL：** 若以 Windows 為主，建議在 **WSL2 的 Linux 檔案系統** 內將本 repo 與 `TripoSR-main` **同層放置**後再執行 `docker compose build`，避免 Windows 路徑與 Docker build context 不一致。
+
+**本機覆寫：** 可在 repo 根目錄自建 `compose.override.yaml` 覆寫服務設定；該檔名已列入 `.gitignore`，不會進版控。
 
 ---
 
