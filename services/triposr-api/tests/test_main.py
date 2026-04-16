@@ -83,6 +83,28 @@ def test_health_reports_degraded(fake_client):
     }
 
 
+def test_health_ready_reports_ok(fake_client):
+    with fake_client(FakeEngine(health=EngineHealth(ready=True))) as client:
+        resp = client.get("/health/ready")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "triposr_ok": True}
+
+
+def test_health_ready_reports_503_when_degraded(fake_client):
+    with fake_client(
+        FakeEngine(health=EngineHealth(ready=False, detail="目前沒有可用的 CUDA GPU。"))
+    ) as client:
+        resp = client.get("/health/ready")
+
+    assert resp.status_code == 503
+    assert resp.json() == {
+        "status": "degraded",
+        "triposr_ok": False,
+        "detail": "目前沒有可用的 CUDA GPU。",
+    }
+
+
 def test_infer_accepts_png(fake_client):
     with fake_client(FakeEngine()) as client:
         resp = client.post(

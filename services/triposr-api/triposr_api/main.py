@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from triposr_api.engine import (
     DegradedEngine,
     EmptyMeshError,
+    EngineHealth,
     EngineNotReadyError,
     InferenceFailedError,
     InvalidImageError,
@@ -29,35 +30,63 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    load_task: asyncio.Task[None] | None = None
     try:
         engine = build_engine()
     except Exception as exc:
         logger.exception("Failed to build TripoSR engine")
         app.state.engine = DegradedEngine(str(exc))
         app.state.settings = None
-    else:
-        app.state.engine = engine
-        app.state.settings = getattr(engine, "settings", None)
+        yield
+        return
+
+    app.state.engine = engine
+    app.state.settings = getattr(engine, "settings", None)
+
+    async def _load_in_thread() -> None:
         try:
-            engine.load()
+            await asyncio.to_thread(engine.load)
         except Exception:
             logger.exception("Failed to initialize TripoSR engine")
-    yield
+
+    load_task = asyncio.create_task(_load_in_thread())
+    try:
+        yield
+    finally:
+        if load_task is not None and not load_task.done():
+            load_task.cancel()
+            try:
+                await load_task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(lifespan=lifespan)
 
 
-@app.get("/health")
-async def health(request: Request) -> JSONResponse:
-    report = request.app.state.engine.health()
+def _health_json(report: EngineHealth) -> dict[str, str | bool]:
     content: dict[str, str | bool] = {
         "status": "ok" if report.ready else "degraded",
         "triposr_ok": report.ready,
     }
     if report.detail:
         content["detail"] = report.detail
-    return JSONResponse(status_code=200, content=content)
+    return content
+
+
+@app.get("/health")
+async def health(request: Request) -> JSONResponse:
+    report = request.app.state.engine.health()
+    return JSONResponse(status_code=200, content=_health_json(report))
+
+
+@app.get("/health/ready")
+async def health_ready(request: Request) -> JSONResponse:
+    """就緒探測：供 Docker Compose `curl -f` 使用；未就緒為 503。JSON 與 GET /health 相同。"""
+    report = request.app.state.engine.health()
+    body = _health_json(report)
+    status_code = 200 if report.ready else 503
+    return JSONResponse(status_code=status_code, content=body)
 
 
 @app.post("/infer")
@@ -100,6 +129,12 @@ async def infer(file: UploadFile, request: Request) -> Response:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     except InferenceFailedError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from None
+    except Exception:
+        logger.exception("POST /infer 發生未預期錯誤")
+        raise HTTPException(
+            status_code=500,
+            detail="3D 推理發生內部錯誤。",
+        ) from None
 
     return Response(
         content=glb,

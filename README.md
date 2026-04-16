@@ -129,6 +129,18 @@ use command `python run.py --help` to see detail usage.
    docker compose down        # 關掉並移除本次起的容器
   ```
 
+<a id="docker-compose-restart"></a>
+
+#### 容器自動重啟（restart 策略）
+
+`compose.yaml` 內 `backend`、`nginx`、`triposr-api` 皆為 `restart: unless-stopped`：容器若**非正常結束**（例如程序崩潰），Docker 會自動再起；在 Docker daemon 或主機重啟後，亦有助於服務回到線上。
+
+- **程序崩潰或被終止**：容器退出後，Docker 會依 restart 設定**自動再起**（前提是映像與設定可再次成功啟動）。
+- **`docker compose stop`（只停不移除）**：屬於刻意停止；即使之後 Docker daemon 或主機重啟，這類先前已停止的容器**預設不會**因 restart 政策而自動回到 running（需再 `docker compose start` 或 `up`）。
+- **`docker compose down`**：會**移除容器**；要恢復服務須再執行 `docker compose up`（`-d` 與否皆可）。
+
+若某服務**啟動即退出**並在短時間內**反覆重啟**，請先 `docker compose logs -f <服務名>`（或 `docker compose logs -f`）查看錯誤；多為環境變數、GPU／驅動、`TripoSR-main` 路徑或依賴未就緒，而非無故「鬼打牆」。
+
 **環境變數（選用）：**
 
 
@@ -153,6 +165,8 @@ curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:${HTTP_PORT:-8080}/heal
 預期：TripoSR 就緒時 HTTP `200`；未就緒或無法連線下游時 HTTP `503`（JSON 仍含 `status`、`triposr_ok`、`detail`）。僅需確認 backend 行程存活請打 `GET /health/live`（恒為 200）。
 
 瀏覽器開 `http://127.0.0.1:8080`（或 `http://localhost:8080`，若已改 `HTTP_PORT` 則替換埠號）應載入前端；上傳圖片跑完整流程須 GPU 與 triposr-api healthy。
+
+**`triposr-api`（Compose 內部）：** `docker compose` 將服務標為 **healthy** 時會打容器內 **`GET /health/ready`**（就緒 **200**、未就緒 **503**；JSON 欄位與 **`GET /health`** 一致）。除錯 sidecar 仍可用 **`GET /health`**（HTTP 恒 **200**，請看 JSON 的 `triposr_ok`）。
 
 ---
 
