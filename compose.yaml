@@ -1,0 +1,72 @@
+# TripoSR 請求逾時：須與 nginx/default.conf 內 /api/ 的 proxy_read_timeout、proxy_send_timeout 一致，
+# 否則可能出現 Nginx 先斷線（502）與後端先放棄 TripoSR（503）交錯、語意漂移。
+# 三服務 restart 語意與除錯：README.md 第 3.3 節內錨點 #docker-compose-restart。
+x-triposr-api-timeout-seconds: &triposr_api_timeout_seconds "120"
+
+services:
+  backend:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080}
+      TRIPOSR_API_URL: http://triposr-api:8001
+      TRIPOSR_API_TIMEOUT_SECONDS: *triposr_api_timeout_seconds
+      STORAGE_ROOT: /app/storage
+    volumes:
+      - ./backend/storage:/app/storage
+    depends_on:
+      triposr-api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=3); assert r.status == 200; r.read()\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  nginx:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  triposr-api:
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: services/triposr-api/Dockerfile
+      args:
+        UBUNTU_MIRROR_HOST: ${UBUNTU_MIRROR_HOST:-}
+      additional_contexts:
+        triposr-main: ../TripoSR-main
+    environment:
+      TRIPOSR_SOURCE_DIR: /opt/triposr
+      TRIPOSR_DEVICE: cuda:0
+      TRIPOSR_CHUNK_SIZE: 8192
+      TRIPOSR_MC_RESOLUTION: 256
+      TRIPOSR_MAX_IMAGE_EDGE: 2048
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # 冷啟動常需數分鐘（HF／rembg／載入 GPU）；過短的 start_period 會在 load() 完成前被標 unhealthy。
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health/ready"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 600s
